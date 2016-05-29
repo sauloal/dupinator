@@ -18,6 +18,7 @@ from collections import defaultdict
 
 REQUIREEQUALNAMES = False
 VERBOSE = False
+DEBUG = False
 MINSIZE = 100
 FIRSTSCANBYTES = 4096# 1024
 FORBIDDEN = [ 'Thumbs.db', '.DS_Store' ]
@@ -27,7 +28,8 @@ CONTAINING = []
 dirsRead = 0
 filesRead = 0
 
-filesBySize = defaultdict(list)
+#filesBySize[size][os.path.basename(f)].append(os.path.join(dirname, f))
+filesBySize = defaultdict(lambda: defaultdict(list))
 
 
 def walker(arg, dirname, fnames):
@@ -82,17 +84,17 @@ def walker(arg, dirname, fnames):
             continue
 
         try:
-            size = os.path.getsize(f)
+            fileSize = os.path.getsize(f)
         except:
             continue
 
-        if VERBOSE: print "walker :: file {} size {} #{}".format(f, size, filesRead)
+        if VERBOSE: print "walker :: file {} fileSize {} #{}".format(f, fileSize, filesRead)
 
-        if size < MINSIZE:
-            if VERBOSE: print "walker :: file {} too small ({} < {})".format(f, size, MINSIZE)
+        if fileSize < MINSIZE:
+            if VERBOSE: print "walker :: file {} too small ({} < {})".format(f, fileSize, MINSIZE)
             continue
 
-        filesBySize[size].append(os.path.join(dirname, f))
+        filesBySize[fileSize][os.path.basename(f)].append(os.path.join(dirname, f))
 
     os.chdir(d)
 
@@ -105,11 +107,13 @@ def fmt3(num):
 
 
 
-def main():
+def main(cmdline):
     parser = argparse.ArgumentParser(description='Dupinator. Fast and efficient identification of duplicated files.')
 
     parser.add_argument('--equal'     , '--equal_names'      , dest="requireEqualNames", action='store_true'                        , help="Require files to have the same name")
     parser.add_argument('--verbose'   ,                        dest="verbose"          , action='store_true'                        , help="Verbose output")
+    parser.add_argument('--debug'     ,                        dest="debug"            , action='store_true'                        , help="Debug output")
+    parser.add_argument('--no_save'   ,                        dest="saveToFile"       , action='store_false'                       , help="Do not save intermediate files")
     
     parser.add_argument('--out'       , '--output'           , dest="output"           , type=str           , default=None          , help="Output file base name (defaults to the normalized, concatenates folder names)")
     parser.add_argument('--min'       , '--min_size'         , dest="minSize"          , type=int           , default=MINSIZE       , help="Minimum file size ({} bytes)".format(MINSIZE))
@@ -121,7 +125,7 @@ def main():
 
     parser.add_argument('folders', nargs=argparse.REMAINDER)
 
-    args = parser.parse_args()
+    args = parser.parse_args(cmdline)
     
     run(args)
 
@@ -129,6 +133,7 @@ def main():
 def run(args):
     global REQUIREEQUALNAMES
     global VERBOSE
+    global DEBUG
     global MINSIZE
     global FIRSTSCANBYTES
     global FORBIDDEN
@@ -140,11 +145,17 @@ def run(args):
 
     REQUIREEQUALNAMES = args.requireEqualNames
     VERBOSE = args.verbose
+    DEBUG = args.debug
     MINSIZE = args.minSize
     FIRSTSCANBYTES = args.firstScanBytes
     FORBIDDEN = args.forbidden
     IGNORE = args.ignore
     CONTAINING = args.containing
+    
+    if DEBUG:
+        VERBOSE = True
+        
+    saveToFile = args.saveToFile
 
     infiles = args.folders
 
@@ -165,10 +176,16 @@ def run(args):
     outdbRm = outdb + ".5.rm.csv"
     outdbLn = outdb + ".6.ln.csv"
 
-    print "Saving to {}".format(outdb)
-    sys.stdout.flush()
+    if saveToFile:
+        print "Saving to {}".format(outdb)
+        sys.stdout.flush()
     
     #quit()
+
+
+
+
+
 
 
     if os.path.exists(outdbFs):
@@ -188,10 +205,11 @@ def run(args):
 
                     cols = line.split("\t")
                     fileSize = int(cols[0])
-                    filenames = cols[1:]
+                    baseName =     cols[1]
+                    fileNames = cols[2:]
                     
-                    filesBySize[fileSize] = filenames
-                
+                    filesBySize[fileSize][baseName] = fileNames
+
     else:
         print "scannig filesystem"
         sys.stdout.flush()
@@ -200,12 +218,18 @@ def run(args):
             print 'Scanning directory "{}"....'.format( x )
             os.path.walk(x, walker, filesBySize)
 
-        #print filesBySize
-        print "saving filesBySize db to {}".format(outdbFs)
-        sys.stdout.flush()
-        with open(outdbFs, "w") as fhd:
-            for fileSize, filenames in filesBySize.items():
-                fhd.write("{}\t{}\n".format(fileSize, "\t".join(filenames)))
+        if saveToFile:
+            #print filesBySize
+            print "saving filesBySize db to {}".format(outdbFs)
+            sys.stdout.flush()
+            
+            with open(outdbFs, "w") as fhd:
+                for fileSize, baseNames in sorted(filesBySize.items()):
+                    for baseName, fileNames in sorted(baseNames.items()):
+                        if DEBUG: print "saving files", fileSize, baseName, fileNames
+                        fhd.write("\t".join([str(fileSize), baseName]+fileNames) + "\n")
+
+
 
 
 
@@ -222,7 +246,7 @@ def run(args):
             print "reading hashes db {}".format(outdbHa)
             sys.stdout.flush()
 
-            filesBySize = defaultdict(lambda: defaultdict(list)) 
+            filesBySize = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
 
             with open(outdbHa) as fhd:
                 for line in fhd:
@@ -232,134 +256,100 @@ def run(args):
                         continue
 
                     cols = line.split("\t")
-                    filesize, hashValue = cols[:2]
-                    filegroup = cols[2:]
-                    filesize = int(filesize)
+                    fileSize, hashValue, baseName = cols[:3]
+                    fileSize = int(fileSize)
+                    fileNames = cols[3:]
                     
-                    filesBySize[filesize][hashValue] = filegroup
+                    filesBySize[fileSize][hashValue][baseName] = fileNames
     
     else:
         print "creating hashes database"
         sys.stdout.flush()
 
-        for k in sorted(filesBySize.keys()):
-            inFiles = filesBySize[k]
-            hashes = defaultdict(list)
+        for fileSize, baseNames in sorted(filesBySize.items()):
+            allFiles = [fileName for (baseName, fileNames) in baseNames.items() for fileName in fileNames]
 
-            if len(inFiles) == 1:
-                if VERBOSE: print "hashes :: size {} had only one file {}".format(k, inFiles[0])
-                del filesBySize[k]
+
+            if len(allFiles) <= 1:
+                if VERBOSE: print "hashes :: size {} had only one file {}".format(fileSize, allFiles[0])
+                del filesBySize[fileSize]
                 continue
 
-            print 'Testing {} files of size {}...'.format(len(inFiles), k)
-            sys.stdout.flush()
+            
+            if REQUIREEQUALNAMES:
+                for baseName, fileNames in sorted(baseNames.items()):    
+                    if len(fileNames) == 1:
+                        if VERBOSE: print "hashes :: size {} basename {} had only one file {}".format(fileSize, baseName, fileNames[0])
+                        del filesBySize[fileSize][baseName]
+    
+                allFiles = [fileName for (baseName, fileNames) in baseNames.items() for fileName in fileNames]
 
 
-            for fileName in inFiles:
-                with file(fileName, 'r') as aFile:
-                    hashValue = md5.new(aFile.read(FIRSTSCANBYTES)).hexdigest()
-                    hashes[hashValue].append(fileName)  # ashearer
-
-            filesBySize[k] = hashes
-
-
-        print "saving hashes db to {}".format(outdbHa)
-        sys.stdout.flush()
-        with open(outdbHa, "w") as fhd:
-            for filesize, hashes in sorted(filesBySize.items()):
-                for hashValue, fileGroup in sorted(hashes.items()):
-                    fhd.write("{}\t{}\t{}\n".format(filesize, hashValue, "\t".join(sorted(fileGroup))))
-
-
-
-
-
-
-
-
-
-
-    if os.path.exists(outdbPu):
-        print "reading potential dups db {}".format(outdbPu)
-        sys.stdout.flush()
-
-        filesBySize = defaultdict(lambda: defaultdict(list)) 
-
-        with open(outdbPu) as fhd:
-            for line in fhd:
-                line = line.strip()
-                
-                if len(line) == 0:
+                if len(allFiles) <= 1:
+                    if VERBOSE: print "hashes :: size {} had only one file {}".format(fileSize, allFiles[0])
+                    del filesBySize[fileSize]
                     continue
 
-                cols = line.split("\t")
-                filesize, hashValue = cols[:2]
-                filegroup = cols[2:]
-                filesize = int(filesize)
+
+
+
+
+            hashes = defaultdict(lambda: defaultdict(list))
+            for fileName in allFiles:
+                with file(fileName, 'r') as aFile:
+                    hashValue = md5.new(aFile.read(FIRSTSCANBYTES)).hexdigest()
+                    baseName = os.path.basename(fileName)
+                    hashes[hashValue][baseName].append(fileName)  # ashearer
+    
+    
+            for hashValue, baseNames in sorted(hashes.items()):
+                allHashFiles = [fileName for fileName in fileNames for baseName, fileNames in baseNames.items()]
                 
-                filesBySize[filesize][hashValue] = filegroup
-
-    else:
-        print "creating potential dups database"
-        sys.stdout.flush()
-
-        for k in sorted(filesBySize.keys()):
-            hashes = filesBySize[k]
-            
-            for hashValue in sorted(hashes.keys()):
-                fileGroup = hashes[hashValue]
-
-                if len(fileGroup) == 1:
-                    if VERBOSE: print "potential :: size {} hash {} had only one file {}".format(k, hashValue, fileGroup[0])
-                    del filesBySize[k][hashValue]
-
-                elif REQUIREEQUALNAMES:
-                    #TODO: check if at least 2 share the same name not if all share it
-                    fcounter = defaultdict(list)
-
-                    for f in sorted(fileGroup):
-                        fcounter[os.path.basename(f)].append(f)
-
-                    if len(fcounter) != 1:
-                        ivalidsBasenames = []
-                        
-                        for fGroupNum, (fBasename, files) in enumerate(sorted(fcounter.items())):
-                            if len(files) == 1:
-                                fileGroup.remove(files[0])
-                                ivalidsBasenames.append(fBasename)
-                            
-                        for inv in ivalidsBasenames:
-                            if VERBOSE: print "potential :: size {} hash {} basename {} has only one file".format(k, hashValue, inv)
-                            del fcounter[inv]
-                            
-                        if   len(fcounter) == 0: # no names left. delete hash
-                            if VERBOSE: print "potential :: size {} hash {} has no file".format(k, hashValue)
-                            del filesBySize[k][hashValue]
-                            
-                        elif len(fcounter) == 1: # just one name. nothing to do
-                            pass
-                            
-                        else: # more than one name, more than one file per name
-                            for fGroupNum, (fBasename, fileNames) in enumerate(sorted(fcounter.items())):
-                                if VERBOSE: print "potential :: size {} hash {} basename {} separated in {}".format(k, hashValue, fBasename, fGroupNum)
-                                filesBySize[k]["{}-{}".format(hashValue,fGroupNum)] = fileNames
-                            
-                            del filesBySize[k][hashValue]
-                            
-
+                if len(allHashFiles) <= 1:
+                    if VERBOSE: print "hashes :: size {} hash {} had only one file {}".format(fileSize, hashValue, allHashFiles[0])
+                    del hashes[hashValue]
+                    continue
                 
-            if len(filesBySize[k]) == 0:
-                if VERBOSE: print "potential :: size {} hash {} has no file".format(k, hashValue)
-                del filesBySize[k]
+                if REQUIREEQUALNAMES:
+                    for baseName, fileNames in sorted(baseNames.items()):
+                        if len(fileNames) <= 1:
+                            if VERBOSE: print "hashes :: size {} hash {} had only one file {}".format(fileSize, hashValue, fileNames[0])
+                            del hashes[hashValue][baseName]
 
-        print "saving potential dups db to {}".format(outdbDu)
-        sys.stdout.flush()
+                    allHashFiles = [fileName for (baseName, fileNames) in baseNames.items() for fileName in fileNames ]
 
-        with open(outdbPu, "w") as fhd:
-            for filesize, hashes in sorted(filesBySize.items()):
-                for hashValue, fileGroup in sorted(hashes.items()):
-                    fhd.write("{}\t{}\t{}\n".format(filesize, hashValue, "\t".join(sorted(fileGroup))))
+                    if len(allHashFiles) <= 1:
+                        if VERBOSE: print "hashes :: size {} hash {} had only one file {}".format(fileSize, hashValue, allHashFiles[0])
+                        del hashes[hashValue]
+                        continue
 
+
+
+            if len(hashes) == 0:
+                if VERBOSE: print "hashes :: size {} had no hash".format(fileSize)
+                del filesBySize[fileSize]
+                continue
+
+
+            filesBySize[fileSize] = hashes
+
+
+
+        if saveToFile:
+            print "saving hashes db to {}".format(outdbHa)
+            sys.stdout.flush()
+            with open(outdbHa, "w") as fhd:
+                for fileSize, hashes in sorted(filesBySize.items()):
+                    for hashValue, baseNames in sorted(hashes.items()):
+                        for baseName, fileNames in sorted(baseNames.items()):
+                            if DEBUG: print "saving hashes", fileSize, hashValue, baseName, fileNames
+                            fhd.write("\t".join([str(fileSize), hashValue, baseName]+fileNames) + "\n")
+
+        if DEBUG and not saveToFile:
+            for fileSize, hashes in sorted(filesBySize.items()):
+                for hashValue, baseNames in sorted(hashes.items()):
+                    for baseName, fileNames in sorted(baseNames.items()):
+                        print "saving hashes", fileSize, hashValue, baseName, fileNames            
 
 
 
@@ -375,83 +365,96 @@ def run(args):
         print "reading dups db {}".format(outdbDu)
         sys.stdout.flush()
 
-        filesBySize = defaultdict(lambda: defaultdict(list)) 
+        filesBySize = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
 
         with open(outdbDu) as fhd:
             for line in fhd:
                 line = line.strip()
-                    
+                
                 if len(line) == 0:
                     continue
 
                 cols = line.split("\t")
-                filesize, hashValue = cols[:2]
-                filegroup = cols[2:]
-                filesize = int(filesize)
-                    
-                filesBySize[filesize][hashValue] = filegroup
+                fileSize, hashValue, baseName = cols[:3]
+                fileSize = int(fileSize)
+                fileNames = cols[3:]
+                
+                filesBySize[fileSize][hashValue][baseName] = fileNames
     
     else:
         print "creating dups database"
         sys.stdout.flush()
 
-        for k in sorted(filesBySize.keys()):
-            inFiles = filesBySize[k]
-            hashes = defaultdict(lambda: defaultdict(list))
-
-            print 'Testing {} files of size {}...'.format(len(inFiles), k)
+        for fileSize, hashes in sorted(filesBySize.items()):
+            print 'Testing {} hashes of size {}...'.format(len(hashes), fileSize)
             sys.stdout.flush()
 
-            for fileName in inFiles:
-                with file(fileName, 'r') as aFile:
-                    hasher = md5.new()
+            nHashes = defaultdict(lambda: defaultdict(list))
 
-                    for chunk in iter(lambda: aFile.read(4096), b""):
-                        hasher.update(chunk)
-                                            
-                    hashValue = hasher.hexdigest()
-                    hashes[hashValue][os.path.basename(fileName)].append(fileName)  # ashearer
+            for hashValue, baseNames in sorted(hashes.items()):
+                for baseName, fileNames in sorted(baseNames.items()):
+                    for fileName in sorted(fileNames):
+                        with file(fileName, 'r') as aFile:
+                            hasher = md5.new()
+    
+                            for chunk in iter(lambda: aFile.read(4096), b""):
+                                hasher.update(chunk)
+                                                    
+                            nHashValue = hasher.hexdigest()
+                            nHashes[nHashValue][baseName].append(fileName)  # ashearer
+
+            
+
+            for nHashValue, baseNames in sorted(nHashes.items()):
+                allFiles = [fileName for (baseName, fileNames) in baseNames.items() for fileName in fileNames]
+
+                if len(allFiles) <= 1:
+                    if VERBOSE: print "dups :: size {} hash {} had only one file {}".format(fileSize, nHashValue, allFiles[0])
+                    del nHashes[nHashValue]
+                    continue
+    
+                
+                if REQUIREEQUALNAMES:
+                    for baseName, fileNames in sorted(baseNames.items()):    
+                        if len(fileNames) == 1:
+                            if VERBOSE: print "dups :: size {} hash {} baseName {} had only one file {}".format(fileSize, nHashValue, baseName, fileNames[0])
+                            del nHashes[nHashValue][baseName]
+                            continue
+        
+                    baseNames = nHashes[nHashValue]
+        
+                    allFiles = [fileName for (baseName, fileNames) in baseNames.items() for fileName in fileNames]
+    
+    
+                    if len(allFiles) <= 1:
+                        if VERBOSE: print "dups :: size {} hash {} had only one file {}".format(fileSize, nHashValue, allFiles[0])
+                        del nHashes[nHashValue]
+                        continue
 
                 
-            for hashValue, baseNames in sorted(hashes.values()):
-                if REQUIREEQUALNAMES:
-                    for basename, fileNames in sorted(baseNames.values()):
-                        if len(fileNames) == 1:
-                            if VERBOSE: print "dups :: size {} hash {} basename {} has only one file".format(k, hashValue, basename)
-                            del hashes[hashValue][basename]
-                    
-                    baseNames = hashes[hashValue]
-                    
-                    if   len(baseNames) == 0:
-                        if VERBOSE: print "dups :: size {} hash {} has no files".format(k, hashValue)
-                        del hashes[hashValue]
-                        
-                    elif len(baseNames) == 1:
-                        survivingBaseName = baseNames.keys()[0]
-                        hashes[hashValue] = baseNames[survivingBaseName]
-                        
-                    else:
-                        for fGroupNum, (basename, fileNames) in enumerate(sorted(baseNames.items())):
-                            if VERBOSE: print "dups :: size {} hash {} basename {} separated in {}".format(k, hashValue, basename, fGroupNum)
-                            hashes["{}-{}".format(hashValue,fGroupNum)] = fileNames
-                            
-                        del hashes[hashValue]
-                        
-                else:
-                    hashes[hashValue] = [y for y in baseNames[x] for x in baseNames]
 
-            filesBySize[k] = hashes
+            if len(nHashes) == 0:
+                if VERBOSE: print "dups :: size {} had no hashes".format(fileSize)
+                del filesBySize[fileSize]
+                
+            else:
+                filesBySize[fileSize] = nHashes
 
+        if saveToFile:
+            print "saving dups db to {}".format(outdbDu)
+            sys.stdout.flush()
+            with open(outdbDu, "w") as fhd:
+                for fileSize, hashes in sorted(filesBySize.items()):
+                    for hashValue, baseNames in sorted(hashes.items()):
+                        for baseName, fileNames in sorted(baseNames.items()):
+                            if DEBUG: print "saving dups", fileSize, hashValue, baseName, fileNames
+                            fhd.write("\t".join([str(fileSize), hashValue, baseName] + fileNames) + "\n")
 
-        print "saving dups db to {}".format(outdbDu)
-        sys.stdout.flush()
-        with open(outdbDu, "w") as fhd:
-            for filesize, hashes in sorted(filesBySize.items()):
-                for hashValue, fileGroup in sorted(hashes.items()):
-                    fhd.write("{}\t{}\t{}\n".format(filesize, hashValue, "\t".join(sorted(fileGroup))))
-
-
-
+        if DEBUG and not saveToFile:
+            for fileSize, hashes in sorted(filesBySize.items()):
+                for hashValue, baseNames in sorted(hashes.items()):
+                    for baseName, fileNames in sorted(baseNames.items()):
+                        print "saving dups", fileSize, hashValue, baseName, fileNames
 
 
 
@@ -476,33 +479,53 @@ def run(args):
     fhd_rm = open(outdbRm, "w")
     fhd_ln = open(outdbLn, "w")
 
-    for filesize, hashes in sorted(filesBySize.items()):
-        for hashValue, fileGroup in sorted(hashes.items()):
-            sourceCounter += 1
+    print filesBySize
+    for fileSize, hashes in sorted(filesBySize.items()):
+        for hashValue, baseNames in sorted(hashes.items()):
+            
+            allFiles = []
+            
+            if REQUIREEQUALNAMES:
+                for baseName, fileNames in sorted(baseNames.items()):
+                    allFiles.append(fileNames)
+                    
+            else:
+                allFiles.append( [fileName for (baseName, fileNames) in baseNames.items() for fileName in fileNames] )
 
-            # Sort on length, as usually less interesting duplicates have longer names
-            fileGroup.sort( lambda x,y: cmp(len(x), len(y)) )
-            
-            orig = fileGroup[0]
-            copies = fileGroup[1:]
-            origSize = os.path.getsize(orig)
-            numCopies = len(copies)
-            #print 'Original {} is {} and has {} copies'.format(orig, fmt3(origSize), numCopies),
-            
-            bytesSavedHere = 0
-            for f in sorted(copies):
-                fileCounter += 1
+            if DEBUG: print "out :: ", fileSize, hashValue, allFiles
+
+
+            for fileGroup in allFiles:
+                sourceCounter += 1
+    
+                print fileGroup
+    
+                # Sort on length, as usually less interesting duplicates have longer names
+                fileGroup.sort( lambda x,y: cmp(len(x), len(y)) )
                 
-                if VERBOSE: print "out :: size {} hash {} original {} copies {}".format(filesize, hashValue, orig, numCopies)
                 
-                fhd_rm.write('rm {}\n'.format(pipes.quote(f)))
-                fhd_ln.write('rm {1} && ln {0} {1}\n'.format(pipes.quote(orig), pipes.quote(f)))
-            
-            bytesSavedHere  = origSize * numCopies
-            bytesSaved     += bytesSavedHere
-            
-            #print 'saving {} (#{})\n'.format(fmt3(bytesSavedHere), sourceCounter)
-            sys.stdout.flush()
+                orig = fileGroup[0]
+                copies = fileGroup[1:]
+                origSize = os.path.getsize(orig)
+                numCopies = len(copies)
+                #print 'Original {} is {} and has {} copies'.format(orig, fmt3(origSize), numCopies),
+                
+                bytesSavedHere = 0
+                    
+                if VERBOSE: print "out :: size {} hash {} original {} copies {}".format(fileSize, hashValue, orig, numCopies)
+                if DEBUG: print " ", copies
+
+                for f in sorted(copies):
+                    fileCounter += 1
+                    
+                    fhd_rm.write('rm {}\n'.format(pipes.quote(f)))
+                    fhd_ln.write('rm {1} && ln {0} {1}\n'.format(pipes.quote(orig), pipes.quote(f)))
+                
+                bytesSavedHere  = origSize * numCopies
+                bytesSaved     += bytesSavedHere
+                
+                #print 'saving {} (#{})\n'.format(fmt3(bytesSavedHere), sourceCounter)
+                sys.stdout.flush()
 
     fhd_rm.close()
     fhd_ln.close()
@@ -516,5 +539,5 @@ def run(args):
 
     
 if __name__ == "__main__":
-    main()
+    main(sys.argv[1:])
 

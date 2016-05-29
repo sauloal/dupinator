@@ -69,21 +69,14 @@ class TestStringMethods(unittest.TestCase):
     def test_forbidden(self):
         import dupinator as dp1
         class args: pass
-        
-        
-        args.requireEqualNames = dp1.REQUIREEQUALNAMES
-        args.verbose = True
-        args.minSize = dp1.MINSIZE
-        args.firstScanBytes = dp1.FIRSTSCANBYTES
-        args.forbidden = dp1.FORBIDDEN
-        args.ignore = dp1.IGNORE
-        args.containing = dp1.CONTAINING
-        args.output = None
 
-        args.folders = self.folders
-
+        args = [
+            "--verbose",
+            "--debug",
+            "--no_save"
+        ] + self.folders
         
-        filesBySize = dp1.run(args)
+        filesBySize = dp1.main(args)
         
         print filesBySize
         
