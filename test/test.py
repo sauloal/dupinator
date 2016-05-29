@@ -16,23 +16,31 @@ def fun(x):
 
 class TestStringMethods(unittest.TestCase):
     def setUp(self):
-        self.folders = ['1', '2', '3', '4', '5', '6']
+        self.folders = ['1', '2', '3', '4', '5', '6', '7', '8', '9']
         
         self.randoms = [
-            ('1/1.dat'    , 1024*1),
-            ('2/2.dat'    , 1024*2),
-            ('5/test.sync', 1024*3),
-            ('5/test.log' , 1024*4),
-            ('5/Thumbs.db', 1024*5)
+            ('1/1.dat'    , 1024*1, ('1')),
+            ('2/2.dat'    , 1024*2, ('2')),
+            ('3/test.sync', 1024*3, ('3')),
+            ('3/test.log' , 1024*4, ('4')),
+            ('3/Thumbs.db', 1024*5, ('5')),
+            ('4/2.dat'    , 1024*2, ("2", "3")),
+            ('4/22.dat'   , 1024*2, ("2", "3")),
+            ('5/2.dat'    , 1024*2, ("2", "3", "4")),
+            ('5/22.dat'   , 1024*2, ("2", "3", "4")),
+            ('6/2.dat'    , 1024*2, ("2", "3", "4", "5")),
+            ('6/22.dat'   , 1024*2, ("2", "3", "4", "5")),
+            ('7/3.dat'    , 1024*2, ("2", "3", "4", "5")),
+            ('8/3.dat'    , 1024*2, ("2", "3", "4", "5"))
         ]
         
         self.copies  = [
-            ('1/1.dat', '3/1.dat' ),
-            ('1/1.dat', '4/11.dat'),
+            ('1/1.dat', '8/1.dat' ),
+            ('1/1.dat', '8/11.dat'),
         ]
         
         self.empties = [
-            '6/empty.file'
+            '9/empty.file'
         ]
         
         print
@@ -45,9 +53,14 @@ class TestStringMethods(unittest.TestCase):
                 os.makedirs(folder)
 
         print "creating random files"
-        for rid, (rnd, size) in enumerate(self.randoms):
+        for rid, (rnd, size, vals) in enumerate(self.randoms):
             with open(rnd, 'w') as fhd:
-                fhd.write("{}".format(rid)*size)
+                text = ""
+                for val in vals:
+                    text += "{}".format(val)*(size/len(vals))
+                while len(text) < size: text += "{}".format(vals[-1])
+                print rid, rnd, size, vals#, text
+                fhd.write(text)
                 
         print "creating copies"
         for src, dst in self.copies:
@@ -73,12 +86,14 @@ class TestStringMethods(unittest.TestCase):
         args = [
             "--verbose",
             "--debug",
-            "--no_save"
+            "--no_save",
+            "--first_scan_bytes",
+            "1024"
         ] + self.folders
         
-        filesBySize = dp1.main(args)
+        filesBySize = dp1.run(args)
         
-        print filesBySize
+        print "filesBySize", filesBySize
         
         self.assertEqual("a", "a")
 
