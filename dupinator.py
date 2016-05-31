@@ -18,7 +18,7 @@ from collections import defaultdict
 
 #self.forbidden = [ 'Thumbs.db', '.DS_Store' ]
 
-#walk.filesBySize[size][os.path.basename(f)].append(os.path.join(dirname, f))
+#walk.filesBySize[size][os.path.basename(f)].append(os.path.join(dirName, f))
 
 
 
@@ -32,87 +32,100 @@ def fmt3(num):
 
 class walker(object):
     def __init__(self,
-                 filesBySize = None,
+                 colNumber = 2,
+                 containing = [],
                  forbidden = [],
                  ignore = [],
-                 containing = [],
-                 minsize = 100,
+                 minSize = 100,
                  verbose = False,
                  debug = False
                  ):
 
-        self.filesBySize = filesBySize
+        self.filesBySize = None
 
-        if self.filesBySize is None:
-            self.filesBySize = defaultdict(lambda: defaultdict(list))
-
+        self.containing = containing
         self.forbidden = forbidden
         self.ignore = ignore
-        self.containing = containing
-        self.minsize = minsize
+        self.minSize = minSize
         self.verbose = verbose
         self.debug = debug
+
         self.dirsRead = 0
         self.filesRead = 0
         self.validFilesRead = 0
 
+        self.initDb(colNumber)
+
+        if self.debug: print "walker :: colNumber {} containing {} forbidden {} ignore {} minSize {} verbose {} debug {}".format(
+            colNumber, containing,
+            forbidden, ignore,
+            minSize, verbose, debug )
+
+    def initDb(self, colNumber):
+        if   colNumber == 2:
+            self.filesBySize = defaultdict(lambda: defaultdict(list))
+
+        elif colNumber == 3:
+            self.filesBySize = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
+
+        else:
+            print " numcols {} should either be 2 or 3".format(colNumber)
+            raise IndexError
+
     def walk(self, folder):
         os.path.walk(folder, self.walker, None)
 
-    def walker(self, arg, dirname, fnames):
-        d = os.getcwd()
-
-        if self.debug: print "walker :: arg {} dirname {} files {} cwd {}".format( arg, dirname, len(fnames), d )
-
-        os.chdir(dirname)
-
+    def walker(self, arg, dirName, fnames):
         self.dirsRead += 1
 
+        if len(fnames) == 0:
+            return
 
-        if self.debug: print "walker :: files before           filtering {}".format(len(fnames))
+        d = os.getcwd()
 
+        if self.debug: print "walker :: arg {} dirName {} files {} cwd {}".format( arg, dirName, len(fnames), d )
 
-        for f in xrange(len(fnames)-1, 0, -1):
+        os.chdir(dirName)
+
+        numValidFiles = 0
+
+        for f in xrange(len(fnames)-1, -1, -1):
             fname = fnames[f]
-            if fname in self.forbidden:
-                if self.debug: print "walker :: deleting {} for being forbidden".format(fname)
-                fnames.remove(fname)
-
-        if self.debug: print "walker :: files after forbidden  filtering {}".format(len(fnames))
 
 
-
-        for f in xrange(len(fnames)-1, 0, -1):
-            fname = fnames[f]
-            if any([fname.endswith(i) for i in self.ignore]):
-                if self.debug: print "walker :: deleting {} for ignoring one of {}".format(fname, ", ".join(self.containing))
-                fnames.remove(fname)
-
-        if self.debug: print "walker :: files after ignore     filtering {}".format(len(fnames))
-
-
-
-        for f in xrange(len(fnames)-1, 0, -1):
-            fname = fnames[f]
-            fullPath = os.path.join(dirname, fname)
-            if any([(c in fullPath) for c in self.containing]):
-                if self.debug: print "walker :: deleting {} for containing one of {}".format(fullPath, ", ".join(self.containing))
-                fnames.remove(fname)
-
-        if self.debug: print "walker :: files after containing filtering {}".format(len(fnames))
-
-
-
-        for fname in fnames:
             self.filesRead += 1
+
 
             if self.filesRead % 10000 == 0:
                 print "walker :: read {} files".format( self.filesRead )
                 sys.stdout.flush()
 
+
+            if len(self.forbidden) != 0:
+                if fname in self.forbidden:
+                    if self.debug: print "walker :: deleting {} for being forbidden".format(fname)
+                    fnames.remove(fname)
+                    continue
+
+            if len(self.ignore) != 0:
+                if any([fname.endswith(i) for i in self.ignore]):
+                    if self.debug: print "walker :: deleting {} for ignoring one of {}".format(fname, ", ".join(self.containing))
+                    fnames.remove(fname)
+                    continue
+
+            fullPath = os.path.join(dirName, fname)
+
+            if len(self.containing) != 0:
+                if any([c in fullPath for c in self.containing]):
+                    if self.debug: print "walker :: deleting {} for containing one of {}".format(fullPath, ", ".join(self.containing))
+                    fnames.remove(fname)
+                    continue
+
             if not (os.path.isfile(fname) or os.path.islink(fname)):
                 if self.verbose: print "walker :: {} not a file".format(fname)
+                fnames.remove(fname)
                 continue
+
 
             try:
                 fileSize = os.path.getsize(fname)
@@ -121,30 +134,96 @@ class walker(object):
                 print "walker :: error getting size"
                 raise SystemError
 
-            if self.verbose: print "walker :: file {} fileSize {} #{}".format(fname, fileSize, self.filesRead)
 
-            if fileSize < self.minsize:
-                if self.verbose: print "walker :: file {} too small ({} < {})".format(fname, fileSize, self.minsize)
+            if fileSize < self.minSize:
+                if self.verbose: print "walker :: file {} too small ({} < {})".format(fname, fileSize, self.minSize)
+                fnames.remove(fname)
                 continue
 
-            self.validFilesRead += 1
 
-            fullPath = os.path.join(dirname, fname)
-            baseName = os.path.basename(fname)
+            if self.debug: print "walker :: file {} {} fileSize {} #{}".format(fname, fullPath, fileSize, self.filesRead)
 
-            self.filesBySize[fileSize][baseName].append(fullPath)
+            numValidFiles += 1
 
-        dl = 52
-        dp = (dl-2)/2
-        dn = dirname
+            self.filesBySize[fileSize][fname].append(fullPath)
 
-        if len(dirname) > dl:
-            dn = dirname[:dp]+'..'+dirname[-dp:]
 
-        if self.verbose: print ("walker :: dir {:<"+str(dl)+"s} - {:10,d} dirs {:10,d} files").format(dn, self.dirsRead, self.filesRead)
+        self.validFilesRead += numValidFiles
+
+        dn = self.shortenPath(dirName)
+
+        if self.verbose: print ("walker :: dir {} - {:10,d} dirs {:10,d} files {:10,d} valid {:10,d} new\n").format(dn, self.dirsRead, self.filesRead, self.validFilesRead, numValidFiles)
         sys.stdout.flush()
 
         os.chdir(d)
+
+    def shortenPath(self, dirName, dl=24):
+        dp = (dl-2)/2
+        dn = dirName
+
+        if len(dn) > dl:
+            dn = dn[:dp]+'..'+dn[-dp:]
+
+        return ("{:<"+str(dl)+"s}").format(dn)
+
+    def _check_num_cols(self):
+        firstLevel = self.filesBySize[self.filesBySize.keys()[0]]
+        secondLevel = firstLevel[firstLevel.keys()[0]]
+
+        if isinstance(secondLevel, list):
+            return 2
+
+        else:
+            return 3
+
+    def iterDb(self):
+        numCols = self._check_num_cols()
+
+        if numCols == 2:
+            for fileSize, baseNames in sorted(self.filesBySize.items()):
+                for baseName, fileNames in sorted(baseNames.items()):
+                    yield [str(fileSize), baseName]+fileNames
+        else:
+            for fileSize, hashValues in sorted(self.filesBySize.items()):
+                for hashValue, baseNames in sorted(hashValues.items()):
+                    for baseName, fileNames in sorted(baseNames.items()):
+                        yield [str(fileSize), hashValue, baseName]+fileNames
+
+    def readDb(self, inFile):
+        numCols = self._check_num_cols()
+
+        self.initDb(numCols)
+
+        with open(inFile) as fhd:
+            for line in fhd:
+                line = line.strip()
+
+                if len(line) == 0:
+                    continue
+
+                cols = line.split("\t")
+                fileSize = int(cols[0])
+
+                if numCols == 2:
+                    baseName = cols[1]
+                    fileNames = cols[2:]
+
+                    self.filesBySize[fileSize][baseName] = fileNames
+
+                else:
+                    hashValue, baseName = cols[1:3]
+                    fileNames = cols[3:]
+
+                    self.filesBySize[fileSize][hashValue][baseName] = fileNames
+
+    def saveDb(self, outFile, numCols):
+        with open(outFile, "w") as fhd:
+            for row in self.iterDb():
+                fhd.write("\t".join(row) + "\n")
+
+    def printDb(self):
+        for row in self.iterDb():
+            print "printing", " ".join(row)
 
 
 def process(args):
@@ -170,23 +249,23 @@ def process(args):
                     debug = debug,
                     forbidden = forbidden,
                     ignore = ignore,
-                    minsize = minSize,
+                    minSize = minSize,
                     verbose = verbose
                  )
-    print "walker", walk, walk.filesBySize
 
 
     if len(infiles) == 0:
         print "no folder given"
         parser.print_help()
         sys.exit(1)
-        
+
     infiles = sorted(list(set(infiles)))
 
-    outdb   = "_".join(infiles).replace("/","_").replace(" ","_")
+    outdb = "_".join(infiles).replace("/","_").replace(" ","_")
 
     if output is not None:
         outdb = output
+
     outdbFs = outdb + ".1.filesBySize.csv"
     outdbHa = outdb + ".2.hashes.csv"
     outdbDu = outdb + ".3.dupes.csv"
@@ -205,6 +284,10 @@ def process(args):
 
 
 
+
+
+
+
     if saveToFile and os.path.exists(outdbFs):
         if os.path.exists(outdbHa) or os.path.exists(outdbDu):
             pass
@@ -213,19 +296,7 @@ def process(args):
             print "reading filesBySize db {}".format(outdbFs)
             sys.stdout.flush()
 
-            with open(outdbFs) as fhd:
-                for line in fhd:
-                    line = line.strip()
-
-                    if len(line) == 0:
-                        continue
-
-                    cols = line.split("\t")
-                    fileSize = int(cols[0])
-                    baseName =     cols[1]
-                    fileNames = cols[2:]
-
-                    walk.filesBySize[fileSize][baseName] = fileNames
+            walk.readDb(outdbFs)
 
     else:
         print "scannig filesystem"
@@ -248,17 +319,10 @@ def process(args):
             print "saving filesBySize db to {}".format(outdbFs)
             sys.stdout.flush()
 
-            with open(outdbFs, "w") as fhd:
-                for fileSize, baseNames in sorted(walk.filesBySize.items()):
-                    for baseName, fileNames in sorted(baseNames.items()):
-                        if debug: print "saving files", fileSize, baseName, fileNames
-                        fhd.write("\t".join([str(fileSize), baseName]+fileNames) + "\n")
-
+            walk.saveDb(outdbFs)
 
         if debug and not saveToFile:
-            for fileSize, baseNames in sorted(walk.filesBySize.items()):
-                for baseName, fileNames in sorted(baseNames.items()):
-                    print "saving files", fileSize, baseName, fileNames
+            walk.printDb()
 
 
 
@@ -276,21 +340,7 @@ def process(args):
             print "reading hashes db {}".format(outdbHa)
             sys.stdout.flush()
 
-            walk.filesBySize = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
-
-            with open(outdbHa) as fhd:
-                for line in fhd:
-                    line = line.strip()
-
-                    if len(line) == 0:
-                        continue
-
-                    cols = line.split("\t")
-                    fileSize, hashValue, baseName = cols[:3]
-                    fileSize = int(fileSize)
-                    fileNames = cols[3:]
-
-                    walk.filesBySize[fileSize][hashValue][baseName] = fileNames
+            walk.readDb(outdbHa)
 
     else:
         print "creating hashes database"
@@ -375,18 +425,10 @@ def process(args):
         if saveToFile:
             print "saving hashes db to {}".format(outdbHa)
             sys.stdout.flush()
-            with open(outdbHa, "w") as fhd:
-                for fileSize, hashValues in sorted(walk.filesBySize.items()):
-                    for hashValue, baseNames in sorted(hashValues.items()):
-                        for baseName, fileNames in sorted(baseNames.items()):
-                            if debug: print "saving hashes", fileSize, hashValue, baseName, fileNames
-                            fhd.write("\t".join([str(fileSize), hashValue, baseName]+fileNames) + "\n")
+            walk.saveDb(outdbHa)
 
         if debug and not saveToFile:
-            for fileSize, hashValues in sorted(walk.filesBySize.items()):
-                for hashValue, baseNames in sorted(hashValues.items()):
-                    for baseName, fileNames in sorted(baseNames.items()):
-                        print "saving hashes", fileSize, hashValue, baseName, fileNames
+            walk.printDb()
 
 
 
@@ -402,21 +444,7 @@ def process(args):
         print "reading dups db {}".format(outdbDu)
         sys.stdout.flush()
 
-        walk.filesBySize = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
-
-        with open(outdbDu) as fhd:
-            for line in fhd:
-                line = line.strip()
-
-                if len(line) == 0:
-                    continue
-
-                cols = line.split("\t")
-                fileSize, hashValue, baseName = cols[:3]
-                fileSize = int(fileSize)
-                fileNames = cols[3:]
-
-                walk.filesBySize[fileSize][hashValue][baseName] = fileNames
+        walk.readDb(outdbDu)
 
     else:
         print "creating dups database"
@@ -482,18 +510,11 @@ def process(args):
         if saveToFile:
             print "saving dups db to {}".format(outdbDu)
             sys.stdout.flush()
-            with open(outdbDu, "w") as fhd:
-                for fileSize, hashValues in sorted(walk.filesBySize.items()):
-                    for hashValue, baseNames in sorted(hashValues.items()):
-                        for baseName, fileNames in sorted(baseNames.items()):
-                            if debug: print "saving dups", fileSize, hashValue, baseName, fileNames
-                            fhd.write("\t".join([str(fileSize), hashValue, baseName] + fileNames) + "\n")
+
+            walk.saveDb(outdbDu)
 
         if debug and not saveToFile:
-            for fileSize, hashValues in sorted(walk.filesBySize.items()):
-                for hashValue, baseNames in sorted(hashValues.items()):
-                    for baseName, fileNames in sorted(baseNames.items()):
-                        print "saving dups", fileSize, hashValue, baseName, fileNames
+            walk.printDb()
 
 
 

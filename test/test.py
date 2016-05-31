@@ -21,7 +21,7 @@ def compDbDicsOneWay(db1, db2, name=""):
 
         if fileSize1 not in db2:
             print "compDbDicsOneWay{} fileSize {} not found in: {}".format( name, fileSize1, ", ".join(sorted(db2.keys())))
-            print "compDbDicsOneWay{} NOT OK".format( name )
+            print "compDbDicsOneWay{} NOT OK\n".format( name )
             return False
 
         hashValues2 = db2[fileSize1]
@@ -31,7 +31,7 @@ def compDbDicsOneWay(db1, db2, name=""):
 
             if hashValue1 not in hashValues2:
                 print "compDbDicsOneWay{} hashValue {} not found in: {}".format( name, hashValue1, ", ".join(sorted(hashValues2.keys())))
-                print "compDbDicsOneWay{} NOT OK".format( name )
+                print "compDbDicsOneWay{} NOT OK\n".format( name )
                 return False
 
             baseNames2 = hashValues2[hashValue1]
@@ -41,7 +41,7 @@ def compDbDicsOneWay(db1, db2, name=""):
 
                 if baseName1 not in baseNames2:
                     print "compDbDicsOneWay{} baseName {} not found in: {}".format( name, baseName1, ", ".join(sorted(baseNames2.keys())))
-                    print "compDbDicsOneWay{} NOT OK".format( name )
+                    print "compDbDicsOneWay{} NOT OK\n".format( name )
                     return False
 
                 fileNames2 = baseNames2[baseName1]
@@ -51,25 +51,36 @@ def compDbDicsOneWay(db1, db2, name=""):
 
                     if fileName1 not in fileNames2:
                         print "compDbDicsOneWay{} fileName {} not found in: {}".format( name, fileName1, ", ".join(sorted(fileNames2)))
-                        print "compDbDicsOneWay{} NOT OK".format( name )
+                        print "compDbDicsOneWay{} NOT OK\n".format( name )
                         return False
 
-    if DEBUG: print "compDbDicsOneWay  OK"
+    if DEBUG: print "compDbDicsOneWay{}     OK\n".format( name )
+
     return True
 
 
 def compDbDicsTwoWays(db1, db2):
-    res1 = compDbDicsOneWay(db1, db2, name="1x2")
-    res2 = compDbDicsOneWay(db2, db1, name="2x1")
+    res1 = compDbDicsOneWay(db1, db2, name="Found X Expected")
+    res2 = compDbDicsOneWay(db2, db1, name="Expected X Found")
     res  = res1 and res2
-    if DEBUG: print "compDbDicsTwoWays 1x2", ("OK" if res1 else "NOT OK")
-    if DEBUG: print "compDbDicsTwoWays 2x1", ("OK" if res2 else "NOT OK")
-    if DEBUG: print "compDbDicsTwoWays res", ("OK" if res  else "NOT OK")
+
+    if DEBUG: print "compDbDicsTwoWays Found X Expected", ("OK" if res1 else "NOT OK")
+    if DEBUG: print "compDbDicsTwoWays Expected X Found", ("OK" if res2 else "NOT OK")
+    if DEBUG: print "compDbDicsTwoWays Final           ", ("OK" if res  else "NOT OK")
+
     return res
 
 
 class TestDupinatorOuputs(unittest.TestCase):
     def setUp(self):
+        self.args = [
+            "--verbose",
+            "--debug",
+            "--no_save",
+            "--first_scan_bytes",
+            "1024"
+        ]
+
         self.randoms = [
             ('1/1.dat'    , 1024*1, ('1')),
             ('1/1/1.dat'  , 1024*1, ('1')),
@@ -156,24 +167,38 @@ class TestDupinatorOuputs(unittest.TestCase):
     def test_forbidden(self):
         import dupinator as dp1
 
-        args = [
-            "--verbose",
-            "--debug",
-            "--no_save",
-            "--first_scan_bytes",
-            "1024",
+        args = self.args + [
             "--forbidden",
             "22.dat"
         ] + self.folders
+
+        if DEBUG: print "Args", args, "\n\n"
 
         filesBySize1 = dp1.run(args)
 
         jFilesBySize1 = json.dumps(filesBySize1)
 
-        if DEBUG: print "\nfilesBySize1", filesBySize1 , "\n"
-        if DEBUG: print "jFilesBySize1" , jFilesBySize1, "\n\n"
+        # if DEBUG: print "\nfilesBySize1", filesBySize1 , "\n"
+        if DEBUG: print "FilesBySize", jFilesBySize1, "\n\n"
 
-        expectedDict1 = {1024: {"ceecdf518271bb68bdcab5986abe4502": {"1.dat": ["1/1.dat", "1/1/1.dat", "1/1/1/1.dat", "8/1.dat"], "11.dat": ["8/11.dat"]}}, 2048: {"5cf9ca0e398051164d9184921c8c1af2": {"2.dat": ["6/2.dat"], "3.dat": ["7/3.dat", "8/3.dat"]}, "444b71ef1e050ecabcfcfe62af97b7ab": {"2.dat": ["4/2.dat"], "22.not": ["4/22.not"]}}}
+        expectedDict1 = {
+            1024: {
+                "ceecdf518271bb68bdcab5986abe4502": {
+                    "1.dat": ["1/1.dat", "1/1/1.dat", "1/1/1/1.dat", "8/1.dat"],
+                    "11.dat": ["8/11.dat"]
+                }
+            },
+            2048: {
+                "5cf9ca0e398051164d9184921c8c1af2": {
+                    "2.dat": ["6/2.dat"],
+                    "3.dat": ["7/3.dat", "8/3.dat"]
+                },
+                "444b71ef1e050ecabcfcfe62af97b7ab": {
+                    "2.dat": ["4/2.dat"],
+                    "22.not": ["4/22.not"]
+                }
+            }
+        }
 
         self.assertTrue(compDbDicsTwoWays(filesBySize1, expectedDict1))
 
@@ -184,24 +209,43 @@ class TestDupinatorOuputs(unittest.TestCase):
     def test_ignore(self):
         import dupinator as dp2
 
-        args = [
-            "--verbose",
-            "--debug",
-            "--no_save",
-            "--first_scan_bytes",
-            "1024",
+        args = self.args + [
             "--ignore",
             ".not"
         ] + self.folders
+
+        if DEBUG: print "Args", args, "\n\n"
 
         filesBySize2 = dp2.run(args)
 
         jFilesBySize2 = json.dumps(filesBySize2)
 
         #if DEBUG: print "\nfilesBySize", filesBySize , "\n"
-        if DEBUG: print "\njFilesBySize" , jFilesBySize2, "\n\n"
+        if DEBUG: print "\nFilesBySize" , jFilesBySize2, "\n\n"
 
-        expectedDict2 = {1024: {"ceecdf518271bb68bdcab5986abe4502": {"1.dat": ["1/1.dat", "8/1.dat"], "11.dat": ["8/11.dat"]}}, 2048: {"5cf9ca0e398051164d9184921c8c1af2": {"2.dat": ["6/2.dat"], "3.dat": ["7/3.dat", "8/3.dat"]}, "444b71ef1e050ecabcfcfe62af97b7ab": {"2.dat": ["4/2.dat"]}}}
+        expectedDict2 = {
+            1024: {
+                "ceecdf518271bb68bdcab5986abe4502": {
+                    "1.dat": ["1/1.dat", "1/1/1.dat", "1/1/1/1.dat", "8/1.dat"],
+                    "11.dat": ["8/11.dat"]
+                }
+            },
+            2048: {
+                "3ad57f7a6e7970075aae8d8a977abf25": {
+                    "2.dat": ["5/2.dat"],
+                    "22.dat": ["5/22.dat"]
+                },
+                "5cf9ca0e398051164d9184921c8c1af2": {
+                    "3.dat": ["7/3.dat", "8/3.dat"],
+                    "2.dat": ["6/2.dat"],
+                    "22.dat": ["6/22.dat"]
+                },
+                "444b71ef1e050ecabcfcfe62af97b7ab": {
+                    "2.dat": ["4/2.dat"],
+                    "22.dat": ["4/22.dat"]
+                }
+            }
+        }
 
         self.assertTrue(compDbDicsTwoWays(filesBySize2, expectedDict2))
 
@@ -209,10 +253,53 @@ class TestDupinatorOuputs(unittest.TestCase):
         del filesBySize2
         del expectedDict2
 
-    def atest_contains(self):
+    def test_contains(self):
         import dupinator as dp3
-        self.assertEqual("a", "a")
-        pass
+
+        args = self.args + [
+            "--containing",
+            "/1/1/"
+        ] + self.folders
+
+        if DEBUG: print "Args", args, "\n\n"
+
+        filesBySize3 = dp3.run(args)
+
+        jFilesBySize3 = json.dumps(filesBySize3)
+
+        #if DEBUG: print "\nfilesBySize", filesBySize , "\n"
+        if DEBUG: print "\nFilesBySize" , jFilesBySize3, "\n\n"
+
+        expectedDict3 = {
+            1024: {
+                "ceecdf518271bb68bdcab5986abe4502": {
+                    "1.dat": ["1/1.dat", "1/1/1.dat", "8/1.dat"],
+                    "11.dat": ["8/11.dat"]
+                }
+            },
+            2048: {
+                "3ad57f7a6e7970075aae8d8a977abf25": {
+                    "2.dat": ["5/2.dat"],
+                    "22.dat": ["5/22.dat"]
+                },
+                "5cf9ca0e398051164d9184921c8c1af2": {
+                    "3.dat": ["7/3.dat", "8/3.dat"],
+                    "2.dat": ["6/2.dat"],
+                    "22.dat": ["6/22.dat"]
+                },
+                "444b71ef1e050ecabcfcfe62af97b7ab": {
+                    "2.dat": ["4/2.dat"],
+                    "22.dat": ["4/22.dat"],
+                    "22.not": ["4/22.not"]
+                }
+            }
+        }
+
+        self.assertTrue(compDbDicsTwoWays(filesBySize3, expectedDict3))
+
+        del dp3
+        del filesBySize3
+        del expectedDict3
 
     def atest_equal_names(self):
         import dupinator as dp4
