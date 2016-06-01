@@ -406,7 +406,7 @@ def process(args):
                     allHashFiles = [fileName for (baseName, fileNames) in baseNames.items() for fileName in fileNames ]
 
                     if len(allHashFiles) <= 1:
-                        if verbose: print "hashes :: size {} hash {} had only one file {}".format(fileSize, hashValue, allHashFiles[0])
+                        if verbose: print "hashes :: size {} hash {} had only one file or less ({})".format(fileSize, hashValue, ", ".join(allHashFiles))
                         del hashValues[hashValue]
                         continue
 

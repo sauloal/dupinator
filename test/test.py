@@ -301,10 +301,40 @@ class TestDupinatorOuputs(unittest.TestCase):
         del filesBySize3
         del expectedDict3
 
-    def atest_equal_names(self):
+    def test_equal_names(self):
         import dupinator as dp4
-        self.assertEqual("a", "a")
-        pass
+
+        args = self.args + [
+            "--equal_names"
+        ] + self.folders
+
+        if DEBUG: print "Args", args, "\n\n"
+
+        filesBySize4 = dp4.run(args)
+
+        jFilesBySize4 = json.dumps(filesBySize4)
+
+        #if DEBUG: print "\nfilesBySize", filesBySize , "\n"
+        if DEBUG: print "\nFilesBySize" , jFilesBySize4, "\n\n"
+
+        expectedDict4 = {
+            1024: {
+                "ceecdf518271bb68bdcab5986abe4502": {
+                    "1.dat": ["1/1.dat", "1/1/1.dat", "1/1/1/1.dat", "8/1.dat"],
+                }
+            },
+            2048: {
+                "5cf9ca0e398051164d9184921c8c1af2": {
+                    "3.dat": ["7/3.dat", "8/3.dat"],
+                }
+            }
+        }
+
+        self.assertTrue(compDbDicsTwoWays(filesBySize4, expectedDict4))
+
+        del dp4
+        del filesBySize4
+        del expectedDict4
 
 
 
