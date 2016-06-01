@@ -12,11 +12,52 @@ It also creates intermediate files permitting resuming the analysis in case of c
 
 USAGE
 =====
+
+```bash
+./dupinator.py -h
+usage: dupinator.py [-h] [--equal] [--verbose] [--debug] [--no_save]
+                    [--out OUTPUT] [--min MINSIZE] [--first FIRSTSCANBYTES]
+                    [--forbidden FORBIDDEN] [--ignore IGNORE]
+                    [--containing CONTAINING]
+                    ...
+
+Dupinator. Fast and efficient identification of duplicated files.
+
+positional arguments:
+  folders
+
+optional arguments:
+  -h, --help            show this help message and exit
+  --equal, --equal_names
+                        Require files to have the same name
+  --verbose             verbose output
+  --debug               debug output
+  --no_save             Do not save intermediate files
+  --out OUTPUT, --output OUTPUT
+                        Output file base name (defaults to the normalized,
+                        concatenates folder names)
+  --min MINSIZE, --min_size MINSIZE
+                        Minimum file size (100 bytes)
+  --first FIRSTSCANBYTES, --first_scan_bytes FIRSTSCANBYTES
+                        Bytes to be read from file for quick hashing (4096
+                        bytes)
+  --forbidden FORBIDDEN, --forbidden_files FORBIDDEN
+                        files to be ignored (). will replace default
+  --ignore IGNORE, --ignore_extension IGNORE
+                        extensions to be ignored (). will replace default
+  --containing CONTAINING, --ignore_containing CONTAINING
+                        ignore files containing text (). will replace default
+```
+
+Example
+=======
+
 ```bash
 dupinator.py Backup Documents
 ```
 
 OR
+
 ```bash
 dupinator.py Backup
 dupinator.py Documents
@@ -30,4 +71,3 @@ dupinator.py Backup Documents
 TODO
 ====
 - Create better rules to find "original", as shortest isn't always the best guess.
-- Add proper comandline parameters
