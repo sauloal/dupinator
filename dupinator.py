@@ -97,7 +97,7 @@ class walker(object):
 
 
             if self.filesRead % 10000 == 0:
-                print "walker :: read {} files".format( self.filesRead )
+                print "walker :: read {:10,d} files".format( self.filesRead )
                 sys.stdout.flush()
 
 
@@ -121,9 +121,9 @@ class walker(object):
                     fnames.remove(fname)
                     continue
 
-            if not (os.path.isfile(fname) or os.path.islink(fname)):
+            if (not os.path.isfile(fname)) or os.path.islink(fname):
                 if self.verbose: print "walker :: {} not a file".format(fname)
-                fnames.remove(fname)
+                #fnames.remove(fname)
                 continue
 
 
@@ -131,7 +131,7 @@ class walker(object):
                 fileSize = os.path.getsize(fname)
 
             except:
-                print "walker :: error getting size"
+                print "walker :: error getting size {}".format(fullPath)
                 raise SystemError
 
 
@@ -167,14 +167,34 @@ class walker(object):
         return ("{:<"+str(dl)+"s}").format(dn)
 
     def _check_num_cols(self):
-        firstLevel = self.filesBySize[self.filesBySize.keys()[0]]
-        secondLevel = firstLevel[firstLevel.keys()[0]]
+        if len( self.filesBySize ) > 0:
+            firstLevel = self.filesBySize[self.filesBySize.keys()[0]]
+            secondLevel = firstLevel[firstLevel.keys()[0]]
 
-        if isinstance(secondLevel, list):
-            return 2
+            if isinstance(secondLevel, list):
+                return 2
+
+            else:
+                return 3
 
         else:
-            return 3
+            num = 0
+
+            try:
+                self.filesBySize["_SIZE"]["_HASH"]["_BASENAME"].append("_V")
+                num = 3
+
+            except:
+                num = 2
+
+            if "_SIZE" in self.filesBySize:
+                del self.filesBySize["_SIZE"]
+
+            if num == 0:
+                print "could not determine the type of database"
+                raise IndexError
+
+            return num
 
     def iterDb(self):
         numCols = self._check_num_cols()
@@ -190,6 +210,8 @@ class walker(object):
                         yield [str(fileSize), hashValue, baseName]+fileNames
 
     def readDb(self, inFile):
+        numRows = 0
+
         numCols = self._check_num_cols()
 
         self.initDb(numCols)
@@ -203,6 +225,7 @@ class walker(object):
 
                 cols = line.split("\t")
                 fileSize = int(cols[0])
+                numRows += 1
 
                 if numCols == 2:
                     baseName = cols[1]
@@ -216,10 +239,17 @@ class walker(object):
 
                     self.filesBySize[fileSize][hashValue][baseName] = fileNames
 
-    def saveDb(self, outFile, numCols):
+        print " read {:10,d} rows".format(numRows)
+
+    def saveDb(self, outFile):
+        numRows = 0
+
         with open(outFile, "w") as fhd:
             for row in self.iterDb():
+                numRows += 1
                 fhd.write("\t".join(row) + "\n")
+
+        print " saved {:10,d} rows".format(numRows)
 
     def printDb(self):
         for row in self.iterDb():
@@ -306,7 +336,8 @@ def process(args):
             print 'Scanning directory "{}"....'.format( x )
             walk.walk(x)
 
-        print "read {} sizes, {} folders and {} files from which {} were valid".format(len(walk.filesBySize), walk.dirsRead, walk.filesRead, walk.validFilesRead)
+
+        print "read {:10,d} sizes, {:10,d} folders and {:10,d} files from which {:10,d} were valid".format(len(walk.filesBySize), walk.dirsRead, walk.filesRead, walk.validFilesRead)
 
 
         for fileSize, baseNames in sorted(walk.filesBySize.items()):
@@ -340,19 +371,29 @@ def process(args):
             print "reading hashes db {}".format(outdbHa)
             sys.stdout.flush()
 
+            walk.initDb(3)
             walk.readDb(outdbHa)
 
     else:
         print "creating hashes database"
         sys.stdout.flush()
 
+        numSizes  = 0
+        numFiles  = 0
+        numHashes = 0
+
         for fileSize, baseNames in sorted(walk.filesBySize.items()):
             allFiles = [fileName for (baseName, fileNames) in baseNames.items() for fileName in fileNames]
 
-            if debug: print "hashes :: size {} allFiles {}".format(fileSize, allFiles)
+            numSizes += 1
+            if numSizes % 1000 == 0:
+                print "hashes :: processed {:10,d}/{:10,d} sizes".format( numSizes, len(walk.filesBySize) )
+                sys.stdout.flush()
+
+            if debug: print "hashes :: size {:10,d} allFiles {}".format(fileSize, allFiles)
 
             if len(allFiles) <= 1:
-                if verbose: print "hashes :: size {} had only one file {}".format(fileSize, allFiles[0])
+                if verbose: print "hashes :: size {:10,d} had only one file {}".format(fileSize, allFiles[0])
                 del walk.filesBySize[fileSize]
                 continue
 
@@ -360,14 +401,14 @@ def process(args):
             if requireEqualNames:
                 for baseName, fileNames in sorted(baseNames.items()):    
                     if len(fileNames) == 1:
-                        if verbose: print "hashes :: size {} basename {} had only one file {}".format(fileSize, baseName, fileNames[0])
+                        if verbose: print "hashes :: size {:10,d} basename {} had only one file {}".format(fileSize, baseName, fileNames[0])
                         del walk.filesBySize[fileSize][baseName]
 
                 allFiles = [fileName for (baseName, fileNames) in baseNames.items() for fileName in fileNames]
 
 
                 if len(allFiles) <= 1:
-                    if verbose: print "hashes :: size {} had only one file {}".format(fileSize, allFiles[0])
+                    if verbose: print "hashes :: size {:10,d} had only one file {}".format(fileSize, allFiles[0])
                     del walk.filesBySize[fileSize]
                     continue
 
@@ -377,53 +418,64 @@ def process(args):
 
             hashValues = defaultdict(lambda: defaultdict(list))
             for fileName in allFiles:
+                numFiles += 1
+
+                if numFiles % 10000 == 0:
+                    print "hashes :: processed {:10,d} files".format( numFiles )
+                    sys.stdout.flush()
+
+
                 with file(fileName, 'r') as aFile:
                     hashValue = md5.new(aFile.read(firstScanBytes)).hexdigest()
                     baseName = os.path.basename(fileName)
                     hashValues[hashValue][baseName].append(fileName)  # ashearer
 
-                    if debug: print "hashes :: size {} fileName {} baseName {} hashValue {}".format(fileSize, fileName, baseName, hashValue)
+                    if debug: print "hashes :: size {:10,d} fileName {} baseName {} hashValue {}".format(fileSize, fileName, baseName, hashValue)
 
 
 
 
             for hashValue, baseNames in sorted(hashValues.items()):
+                numHashes += 1
+
+                if numHashes % 100000 == 0:
+                    print "hashes :: processed {:10,d} hashes".format( numFiles )
+                    sys.stdout.flush()
+
                 allHashFiles = [fileName for (baseName, fileNames) in baseNames.items() for fileName in fileNames]
 
-                if debug: print "hashes :: size {} hashValue {} allHashFiles {}".format(fileSize, hashValue, allHashFiles)
+                if debug: print "hashes :: size {:10,d} hashValue {} allHashFiles {}".format(fileSize, hashValue, allHashFiles)
 
                 if len(allHashFiles) <= 1:
-                    if verbose: print "hashes :: size {} hash {} had only one file {}".format(fileSize, hashValue, allHashFiles[0])
+                    if verbose: print "hashes :: size {:10,d} hash {} had one file or less({})".format(fileSize, hashValue, ", ".join(allHashFiles))
                     del hashValues[hashValue]
                     continue
 
                 if requireEqualNames:
                     for baseName, fileNames in sorted(baseNames.items()):
                         if len(fileNames) <= 1:
-                            if verbose: print "hashes :: size {} hash {} had only one file {}".format(fileSize, hashValue, fileNames[0])
+                            if verbose: print "hashes :: size {:10,d} hash {} had one file or less({})".format(fileSize, hashValue, ", ".join(fileNames))
                             del hashValues[hashValue][baseName]
 
                     allHashFiles = [fileName for (baseName, fileNames) in baseNames.items() for fileName in fileNames ]
 
                     if len(allHashFiles) <= 1:
-                        if verbose: print "hashes :: size {} hash {} had only one file or less ({})".format(fileSize, hashValue, ", ".join(allHashFiles))
+                        if verbose: print "hashes :: size {:10,d} hash {} had only one file or less ({})".format(fileSize, hashValue, ", ".join(allHashFiles))
                         del hashValues[hashValue]
                         continue
 
 
 
             if len(hashValues) == 0:
-                if verbose: print "hashes :: size {} had no hash".format(fileSize)
+                if verbose: print "hashes :: size {:10,d} had no hash".format(fileSize)
                 del walk.filesBySize[fileSize]
                 continue
-
 
             walk.filesBySize[fileSize] = hashValues
 
 
-
         if saveToFile:
-            print "saving hashes db to {}".format(outdbHa)
+            print "saving hashes db to {}. {:10,d} sizes {:10,d} files {:10,d} hahes".format(outdbHa, numSizes, numFiles, numHashes)
             sys.stdout.flush()
             walk.saveDb(outdbHa)
 
@@ -444,21 +496,34 @@ def process(args):
         print "reading dups db {}".format(outdbDu)
         sys.stdout.flush()
 
+        walk.initDb(3)
         walk.readDb(outdbDu)
 
     else:
         print "creating dups database"
         sys.stdout.flush()
 
+        numSizes  = 0
+        numFiles  = 0
+
         for fileSize, hashValues in sorted(walk.filesBySize.items()):
-            print 'Testing {} hashes of size {}...'.format(len(hashValues), fileSize)
-            sys.stdout.flush()
+            numSizes += 1
+
+            if numSizes % 10000 == 0:
+                print 'dups :: Deep hashed {:10,d}/{:10,d} sizes'.format(numSizes, len(walk.filesBySize))
+                sys.stdout.flush()
 
             nHashValues = defaultdict(lambda: defaultdict(list))
 
             for hashValue, baseNames in sorted(hashValues.items()):
                 for baseName, fileNames in sorted(baseNames.items()):
                     for fileName in sorted(fileNames):
+
+                        numFiles += 1
+                        if numFiles % 100000 == 0:
+                            print 'dups :: Deep hashed {:10,d} files'.format(numFiles)
+                            sys.stdout.flush()
+
                         with file(fileName, 'r') as aFile:
                             hasher = md5.new()
 
@@ -467,14 +532,14 @@ def process(args):
 
                             nHashValue = hasher.hexdigest()
                             nHashValues[nHashValue][baseName].append(fileName)  # ashearer
-                            if debug: print "dups :: size {} hashValue {} baseName {} fileName {} > new hash {}".format(fileSize, hashValue, baseName, fileName, nHashValue)
+                            if debug: print "dups :: size {:10,d} hashValue {} baseName {} fileName {} > new hash {}".format(fileSize, hashValue, baseName, fileName, nHashValue)
 
 
             for nHashValue, baseNames in sorted(nHashValues.items()):
                 allFiles = [fileName for (baseName, fileNames) in baseNames.items() for fileName in fileNames]
 
                 if len(allFiles) <= 1:
-                    if verbose: print "dups :: size {} hash {} had only one file {}".format(fileSize, nHashValue, allFiles[0])
+                    if verbose: print "dups :: size {:10,d} hash {} had only one file {}".format(fileSize, nHashValue, allFiles[0])
                     del nHashValues[nHashValue]
                     continue
 
@@ -482,7 +547,7 @@ def process(args):
                 if requireEqualNames:
                     for baseName, fileNames in sorted(baseNames.items()):    
                         if len(fileNames) == 1:
-                            if verbose: print "dups :: size {} hash {} baseName {} had only one file {}".format(fileSize, nHashValue, baseName, fileNames[0])
+                            if verbose: print "dups :: size {:10,d} hash {} baseName {} had only one file {}".format(fileSize, nHashValue, baseName, fileNames[0])
                             del nHashValues[nHashValue][baseName]
                             continue
 
@@ -492,23 +557,22 @@ def process(args):
 
 
                     if len(allFiles) <= 1:
-                        if verbose: print "dups :: size {} hash {} had only one file {}".format(fileSize, nHashValue, allFiles[0])
+                        if verbose: print "dups :: size {:10,d} hash {} had only one file {}".format(fileSize, nHashValue, allFiles[0])
                         del nHashValues[nHashValue]
                         continue
 
 
 
             if len(nHashValues) == 0:
-                if verbose: print "dups :: size {} had no hashes".format(fileSize)
+                if verbose: print "dups :: size {:10,d} had no hashes".format(fileSize)
                 del walk.filesBySize[fileSize]
 
             else:
                 walk.filesBySize[fileSize] = nHashValues
 
 
-
         if saveToFile:
-            print "saving dups db to {}".format(outdbDu)
+            print "saving dups db to {} . {} sizes {} files".format(outdbDu, numSizes, numFiles)
             sys.stdout.flush()
 
             walk.saveDb(outdbDu)
